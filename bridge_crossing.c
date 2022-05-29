@@ -1,7 +1,7 @@
 #include<stdio.h>
 #include<unistd.h>
 #include<stdlib.h>
-#include<phtread.h>
+#include<pthread.h>
 #include<time.h>
 #define MAX_VEHICLE 3
 #define MAX_WAITING 4
@@ -27,7 +27,6 @@ pthread_mutex_t status_lock;
 //condition variables
 pthread_cond_t east_west[2];
 
-
 //prototypes
 void bridge_init();
 int is_safe(int direction);
@@ -35,10 +34,39 @@ void arrive_bridge(int direction);
 void exit_bridge(int direction);
 
 
-
-
+void * status_thread_function();
+void * one_car(void * void_ptr);
+void print_status();
 int main(){
+    pthread_t   status_thread;
+    pthread_t   ID[MAX_THREADS];      /*vehicles IDs*/
+    int         arg[MAX_THREADS];     /*vehicle arguments*/
+    int         thr;                   /*# of vehicles*/
+    int         i;
 
+    thr = 10;
+    printf("Parent started....\n");
+    pthread_mutex_init(&screen_lock, NULL);
+    pthread_mutex_init(&status_lock , NULL);
+    bridge_init();
+
+    /*create status thread*/
+    if(pthread_create(&status_thread, NULL , &status_thread_function , NULL) != 0)
+        perror("Failed to create thread");
+
+    /*create threads*/
+    for(i = 0 ; i < thr ; i++){
+        arg[i] = i + 1;
+        if(pthread_create(ID + i , NULL , &one_car , (void *) (arg + i)) != 0)
+            perror("Failed to create thread");
+    }
+    //join threads
+    for(i = 0 ; i < thr ; i++)
+        if(pthread_join(ID[i] , NULL) != 0)
+            perror("Failed to join threads");
+        printf("Parent exits.....\n");
+        pthread_join(status_thread , NULL);
+    return 0;
 }
 
 //monitor functions
@@ -52,9 +80,11 @@ void bridge_init(){
 
 
     int i;
+    int dir = 0;
     for(i = 0 ; i < MAX_THREADS ; i++){
         car_status[i] = -1;
-        car_directions[i] = 0;
+        car_directions[i] = dir == 0 ? 1 : 0;
+        dir = dir == 0 ? 1 : 0;
     }
 }
 
@@ -108,12 +138,12 @@ void exit_bridge(int direction){
 void * one_car(void * void_ptr){
     int *  int_ptr = (int *) void_ptr;
     int ID = *int_ptr;
-    int direction = car_directions[ID]; 
+    int direction = car_directions[ID - 1];
     int i,j;
     pthread_mutex_lock(&status_lock);
         car_status[ID - 1] = 0;
     pthread_mutex_unlock(&status_lock);
-
+    sleep(1);
     //try crossing the bridge
     arrive_bridge(direction);
     for(i = 1 ; i <= 3 ; i++){
@@ -125,5 +155,31 @@ void * one_car(void * void_ptr){
     exit_bridge(direction);
     pthread_mutex_lock(&status_lock);
         car_status[ID - 1] = -1; //done crossing
+    pthread_mutex_unlock(&status_lock);
+    printf("Car %d done crossing\n" , ID);
+}
+
+void * status_thread_function(){
+    while(TRUE){
+        print_status();
+        sleep(1);
+        //system("clear");
+    }
+}
+void create_output(){
+
+}
+
+//aux functions
+void print_status(){
+    int i;
+    char * dir[2] = {"--->" , "<---"};
+    pthread_mutex_lock(&status_lock);
+        for(i = 0 ; i < MAX_THREADS ; i++){
+            if(car_status[i] == -1)
+                continue;
+            printf("Car : %d status: %d direction: %s\n" , i + 1, car_status[i], dir[car_directions[i]]);
+            
+        }
     pthread_mutex_unlock(&status_lock);
 }
