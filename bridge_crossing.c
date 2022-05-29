@@ -9,7 +9,7 @@
 #define FALSE       0
 #define EAST        0
 #define WEST        1
-#define MAX_THREADS     10
+#define MAX_THREADS     20
 
 //shared variables
 int current_direction;
@@ -26,6 +26,7 @@ pthread_mutex_t status_lock;
 
 //condition variables
 pthread_cond_t east_west[2];
+pthread_cond_t update_state;
 
 //prototypes
 void bridge_init();
@@ -44,7 +45,7 @@ int main(){
     int         thr;                   /*# of vehicles*/
     int         i;
 
-    thr = 10;
+    thr = 15;
     printf("Parent started....\n");
     pthread_mutex_init(&screen_lock, NULL);
     pthread_mutex_init(&status_lock , NULL);
@@ -99,9 +100,9 @@ int is_safe(int direction){
 
 void arrive_bridge(int direction){
     pthread_mutex_lock(&monitor_lock);
-        if(!is_safe(direction) && cars_crossing >= 4){ //wait to cross
+        if(!is_safe(direction) || cars_crossing >= 4){ //wait to cross
             waiting[direction]++;
-            while(!is_safe(direction) && cars_crossing >= 4)
+            while(!is_safe(direction) || cars_crossing >= 4)
                 pthread_cond_wait(&east_west[direction] , &monitor_lock);
             waiting[direction]--;
         }
@@ -112,7 +113,6 @@ void arrive_bridge(int direction){
             cars_crossing = 1;
         else if(cars_crossing >= 4 && direction == 1 && waiting[0] == 0)
             cars_crossing = 1;
-
 
         current_direction = direction;
     pthread_mutex_unlock(&monitor_lock);
@@ -143,13 +143,13 @@ void * one_car(void * void_ptr){
     pthread_mutex_lock(&status_lock);
         car_status[ID - 1] = 0;
     pthread_mutex_unlock(&status_lock);
-    sleep(1);
     //try crossing the bridge
+    sleep(2);
     arrive_bridge(direction);
     for(i = 1 ; i <= 3 ; i++){
-        sleep(1);
+        sleep(2);
         pthread_mutex_lock(&status_lock);
-            car_status[ID - 1] = j; //wating
+            car_status[ID - 1] = i; //wating
         pthread_mutex_unlock(&status_lock);
     }
     exit_bridge(direction);
@@ -162,8 +162,8 @@ void * one_car(void * void_ptr){
 void * status_thread_function(){
     while(TRUE){
         print_status();
-        sleep(1);
-        //system("clear");
+        sleep(2);
+        system("clear");
     }
 }
 void create_output(){
@@ -175,6 +175,7 @@ void print_status(){
     int i;
     char * dir[2] = {"--->" , "<---"};
     pthread_mutex_lock(&status_lock);
+        printf("Current direction: %s\n" , dir[current_direction]);
         for(i = 0 ; i < MAX_THREADS ; i++){
             if(car_status[i] == -1)
                 continue;
