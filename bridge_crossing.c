@@ -15,9 +15,15 @@
 int current_direction;
 int vehicle_count;
 int cars_crossing;
+int east_west_crossing[2];
 int waiting[2];
 int car_status[MAX_THREADS];
 int car_directions[MAX_THREADS];
+
+/*max number of threads*/
+pthread_t   ID[MAX_THREADS];      /*vehicles IDs*/
+int         arg[MAX_THREADS];     /*vehicle arguments*/
+int car_thread_index;
 
 //mutex
 pthread_mutex_t monitor_lock;
@@ -29,6 +35,7 @@ pthread_cond_t east_west[2];
 pthread_cond_t update_state;
 
 //prototypes
+void commnad_add_car(char * dir);
 void bridge_init();
 int is_safe(int direction);
 void arrive_bridge(int direction);
@@ -38,10 +45,12 @@ void exit_bridge(int direction);
 void * status_thread_function();
 void * one_car(void * void_ptr);
 void print_status();
+
+
+
+
 int main(){
     pthread_t   status_thread;
-    pthread_t   ID[MAX_THREADS];      /*vehicles IDs*/
-    int         arg[MAX_THREADS];     /*vehicle arguments*/
     int         thr;                   /*# of vehicles*/
     int         i;
 
@@ -78,8 +87,9 @@ void bridge_init(){
     pthread_mutex_init(&monitor_lock , NULL);
     pthread_cond_init(&east_west[0] , NULL);
     pthread_cond_init(&east_west[1] , NULL);
-
-
+    car_thread_index = 0;
+    east_west_crossing[0] = 0;
+    east_west_crossing[1] = 0;
     int i;
     int dir = 0;
     for(i = 0 ; i < MAX_THREADS ; i++){
@@ -100,19 +110,23 @@ int is_safe(int direction){
 
 void arrive_bridge(int direction){
     pthread_mutex_lock(&monitor_lock);
-        if(!is_safe(direction) || cars_crossing >= 4){ //wait to cross
+        if(!is_safe(direction) || east_west_crossing[direction] >= 4){ //wait to cross
             waiting[direction]++;
-            while(!is_safe(direction) || cars_crossing >= 4)
+            while(!is_safe(direction) || east_west_crossing[direction] >= 4)
                 pthread_cond_wait(&east_west[direction] , &monitor_lock);
             waiting[direction]--;
         }
         vehicle_count++;
         
-        cars_crossing++;
-        if(cars_crossing >= 4 && direction == 0 && waiting[1] == 0)
+        east_west_crossing[direction]++;
+        if(east_west_crossing[direction] >= 4 && direction == 0 && waiting[1] == 0)
+            east_west_crossing[direction] = 0;
+        else if(east_west_crossing[direction] >= 4 && direction == 1 && waiting[0] == 0)
+            east_west_crossing[direction] = 0;
+        /*if(cars_crossing > 4 && direction == 0 && waiting[1] == 0)
             cars_crossing = 1;
-        else if(cars_crossing >= 4 && direction == 1 && waiting[0] == 0)
-            cars_crossing = 1;
+        else if(cars_crossing > 4 && direction == 1 && waiting[0] == 0)
+            cars_crossing = 1;*/
 
         current_direction = direction;
     pthread_mutex_unlock(&monitor_lock);
@@ -121,11 +135,11 @@ void arrive_bridge(int direction){
 void exit_bridge(int direction){
     pthread_mutex_lock(&monitor_lock);
         vehicle_count--;
-        if(vehicle_count > 0 && cars_crossing < 4){ // we still have vehicles on the bridge
+        if(vehicle_count > 0 && east_west_crossing[direction] < 4){ // we still have vehicles on the bridge
             pthread_cond_broadcast(&east_west[direction]);
         }else{
             if(waiting[1 - direction] != 0){
-                cars_crossing=1;
+                east_west_crossing[1 - direction] = 0;
                 pthread_cond_broadcast(&east_west[1 - direction]);
             }else
                 pthread_cond_broadcast(&east_west[direction]);
@@ -146,12 +160,14 @@ void * one_car(void * void_ptr){
     //try crossing the bridge
     sleep(2);
     arrive_bridge(direction);
+    int tmp = east_west_crossing[direction];
     for(i = 1 ; i <= 3 ; i++){
-        sleep(2);
+        sleep(1 + tmp);
         pthread_mutex_lock(&status_lock);
             car_status[ID - 1] = i; //wating
         pthread_mutex_unlock(&status_lock);
     }
+    sleep(1);
     exit_bridge(direction);
     pthread_mutex_lock(&status_lock);
         car_status[ID - 1] = -1; //done crossing
@@ -183,4 +199,20 @@ void print_status(){
             
         }
     pthread_mutex_unlock(&status_lock);
+}
+
+
+//commands for simulation
+void commnad_add_car(char * dir){
+    if(dir == "der"){
+        car_directions[car_thread_index] = 1;
+        if(car_thread_index + 1 > MAX_THREADS)
+            printf("Maximum number of thread reached\n");
+        else{
+            arg[car_thread_index] = car_thread_index + 1;
+            if(pthread_create(ID + car_thread_index, NULL , &one_car , (void *) (arg + car_thread_index)))
+                perror("Failed to create thread");
+            car_thread_index++;
+        }
+    }
 }
